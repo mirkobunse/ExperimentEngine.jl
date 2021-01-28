@@ -100,16 +100,20 @@ Base.show(io::IO, t::Trial{id,T}) where {id, T} = print(io, "Trial{:", string(id
 
 function conduct(t::AbstractVector{T}) where {T <: AbstractTrial}
     r = resulttype(T)[] # local collection of results
-    c = RemoteChannel(()->Channel{Union{resulttype(T),Nothing}}(length(t)), 1)
+    c = RemoteChannel(()->Channel{Union{resulttype(T),Nothing,Exception}}(length(t)), 1)
     p = Progress(length(t)) # progress bar
     @info "Distributing $(length(t)) trials over $(nworkers()) workers"
     @sync begin
         @async begin # this task collects the results and prints the progress bar
             m = take!(c) # block until the first result arrives
             while !isnothing(m)
-                push!(r, m) # add to local results
-                next!(p) # advance the progress bar
-                m = take!(c) # wait for the next item
+                if m isa Exception
+                    throw(m)
+                else
+                    push!(r, m) # add to local results
+                    next!(p) # advance the progress bar
+                    m = take!(c) # wait for the next item
+                end
             end
         end
         @async begin # this task does the computation
